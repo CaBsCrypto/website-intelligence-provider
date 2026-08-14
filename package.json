@@ -1,0 +1,26 @@
+{
+  "name": "@stellar-bazaar/website-intelligence-provider",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Independent, deterministic website intelligence provider with HTTP and MCP-shaped interfaces.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CaBsCrypto/website-intelligence-provider.git"
+  },
+  "bugs": { "url": "https://github.com/CaBsCrypto/website-intelligence-provider/issues" },
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "build": "tsc --project tsconfig.build.json",
+    "start": "npm run build && node work/build/src/server.js",
+    "mcp": "npm run build && node work/build/src/mcp.js",
+    "test": "npm run build && node --test work/build/test/*.test.js",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  }
+}

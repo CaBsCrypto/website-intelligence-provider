@@ -1,0 +1,14 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "builds": [
+    { "src": "api/**/*.ts", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "^/$", "dest": "/api/index.ts" },
+    { "src": "^/health$", "dest": "/api/health.ts" },
+    { "src": "^/v1/service-card$", "dest": "/api/v1/service-card.ts" },
+    { "src": "^/v1/fixtures$", "dest": "/api/v1/fixtures.ts" },
+    { "src": "^/v1/audits$", "dest": "/api/v1/audits.ts" }
+  ]
+}

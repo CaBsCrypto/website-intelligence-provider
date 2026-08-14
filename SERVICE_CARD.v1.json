@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "website-intelligence",
+  "version": "1.0.0",
+  "name": { "en": "Website Intelligence", "es": "Inteligencia de Sitios Web" },
+  "description": {
+    "en": "Deterministic local-fixture website audit provider.",
+    "es": "Proveedor de auditoría web determinista mediante fixtures locales."
+  },
+  "input": { "contentType": "application/json", "schema": { "url": "absolute http(s) URL", "language": "en | es (optional)" } },
+  "output": { "contentType": "application/json", "schemaVersion": "1.0" },
+  "capabilities": ["identity", "security", "seo", "accessibility", "performance"],
+  "interfaces": { "http": { "method": "POST", "path": "/v1/audits" }, "mcp": { "tool": "audit_website" } },
+  "networkPolicy": { "default": "deny", "fixtureOnly": true, "outboundRequests": false },
+  "determinism": { "guaranteedForSameVersionAndInput": true, "clockDataIncluded": false },
+  "license": "Apache-2.0"
+}
