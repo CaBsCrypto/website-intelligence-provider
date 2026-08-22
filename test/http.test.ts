@@ -19,6 +19,9 @@ test("serves Service Card and bilingual audits over HTTP", async (context) => {
   assert.equal(card.networkPolicy.default, "deny");
   assert.equal(card.payments.environment, "testnet");
   assert.equal(card.payments.settlementDefault, "disabled");
+  assert.equal(card.payments.protectedResources[0].network, "stellar:testnet");
+  assert.equal(card.payments.protectedResources[0].assetDecimals, 7);
+  assert.equal(card.payments.protectedResources[0].compatibility.package, "@x402/stellar");
 
   const response = await fetch(`${origin}/v1/audits`, {
     method: "POST",

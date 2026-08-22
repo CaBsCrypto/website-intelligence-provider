@@ -1,4 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { ExactStellarScheme } from "@x402/stellar/exact/server";
+import { validateStellarDestinationAddress } from "@x402/stellar";
 import { auditWebsite, AuditInputError } from "../audit.js";
 import { readJsonBody, sendJson } from "../http.js";
 import { FacilitatorAdapterError } from "./adapter.js";
@@ -27,6 +29,8 @@ const BINDING_SCHEMA = {
   additionalProperties: false
 } as const;
 
+const stellarScheme = new ExactStellarScheme();
+
 export function requestHashFor(request: unknown): string {
   return sha256(request);
 }
@@ -35,19 +39,25 @@ function resourceUrl(config: X402ProviderConfig): string {
   return new URL(config.endpointPath, `${config.publicBaseUrl.replace(/\/$/, "")}/`).toString();
 }
 
-export function paymentRequirementsFor(config: X402ProviderConfig): PaymentRequirements {
-  return {
+export async function paymentRequirementsFor(config: X402ProviderConfig): Promise<PaymentRequirements> {
+  const enhanced = await stellarScheme.enhancePaymentRequirements({
     scheme: "exact",
     network: config.network,
     amount: config.amount,
     asset: config.asset,
     payTo: config.payTo,
     maxTimeoutSeconds: config.maxTimeoutSeconds,
-    extra: { name: "USDC", version: "2" }
-  };
+    extra: {}
+  }, {
+    x402Version: X402_VERSION,
+    scheme: "exact",
+    network: config.network,
+    extra: { areFeesSponsored: true }
+  }, []);
+  return enhanced as PaymentRequirements;
 }
 
-export function createPaymentRequired(config: X402ProviderConfig, request: unknown, error = "PAYMENT-SIGNATURE header is required"): PaymentRequired {
+export async function createPaymentRequired(config: X402ProviderConfig, request: unknown, error = "PAYMENT-SIGNATURE header is required"): Promise<PaymentRequired> {
   return {
     x402Version: X402_VERSION,
     error,
@@ -56,7 +66,7 @@ export function createPaymentRequired(config: X402ProviderConfig, request: unkno
       description: "Deterministic Website Intelligence audit",
       mimeType: "application/json"
     },
-    accepts: [paymentRequirementsFor(config)],
+    accepts: [await paymentRequirementsFor(config)],
     extensions: {
       [X402_BINDING_EXTENSION]: {
         info: { algorithm: "sha256", requestHash: requestHashFor(request) },
@@ -73,10 +83,12 @@ function isRecord(value: unknown): value is Record<string, any> {
 function paymentShapeIsValid(payment: unknown): payment is PaymentPayload {
   if (!isRecord(payment) || payment.x402Version !== X402_VERSION) return false;
   if (!isRecord(payment.accepted) || payment.accepted.scheme !== "exact") return false;
-  if (!isRecord(payment.payload) || typeof payment.payload.signature !== "string" || payment.payload.signature.length === 0) return false;
-  if (!isRecord(payment.payload.authorization)) return false;
-  return ["from", "to", "value", "validAfter", "validBefore", "nonce"]
-    .every((field) => typeof payment.payload.authorization[field] === "string");
+  if (!isRecord(payment.payload) || typeof payment.payload.transaction !== "string") return false;
+  const transaction = payment.payload.transaction;
+  return transaction.length > 0
+    && transaction.length % 4 === 0
+    && /^[A-Za-z0-9+/]+={0,2}$/.test(transaction)
+    && Buffer.from(transaction, "base64").length > 0;
 }
 
 function validateBinding(payment: PaymentPayload, required: PaymentRequired): string[] {
@@ -87,8 +99,6 @@ function validateBinding(payment: PaymentPayload, required: PaymentRequired): st
   const requestHash = required.extensions[X402_BINDING_EXTENSION].info.requestHash;
   const submittedHash = payment.extensions?.[X402_BINDING_EXTENSION]?.info?.requestHash;
   if (submittedHash !== requestHash) mismatches.push("request binding");
-  if (payment.payload.authorization.to.toLowerCase() !== requirements.payTo.toLowerCase()) mismatches.push("recipient");
-  if (payment.payload.authorization.value !== requirements.amount) mismatches.push("amount authorization");
   return mismatches;
 }
 
@@ -97,7 +107,7 @@ function paymentRequiredResponse(response: ServerResponse, required: PaymentRequ
   sendJson(response, 402, { error }, { "payment-required": encodeX402Header(challenge) });
 }
 
-function adapterFailure(response: ServerResponse, error: unknown, phase: "verification" | "settlement"): void {
+function adapterFailure(response: ServerResponse, error: unknown, phase: "support" | "verification" | "settlement"): void {
   const disabled = error instanceof FacilitatorAdapterError && error.code === "SETTLEMENT_DISABLED";
   sendJson(response, disabled ? 503 : 502, {
     error: {
@@ -133,11 +143,11 @@ export async function handlePaidAuditRequest(
   }
 
   if (!dependencies.config.enabled) {
-    sendJson(response, 503, { error: { code: "X402_NOT_CONFIGURED", message: "Set X402_PAY_TO to a Testnet recipient address." } });
+    sendJson(response, 503, { error: { code: "X402_NOT_CONFIGURED", message: "Set X402_STELLAR_PAY_TO to a valid Stellar Testnet G- or C-address." } });
     return;
   }
 
-  const required = createPaymentRequired(dependencies.config, body);
+  const required = await createPaymentRequired(dependencies.config, body);
   const encodedPayment = request.headers["payment-signature"];
   if (!encodedPayment || Array.isArray(encodedPayment)) {
     paymentRequiredResponse(response, required, "PAYMENT-SIGNATURE header is required");
@@ -161,6 +171,29 @@ export async function handlePaidAuditRequest(
 
   if (!dependencies.config.settlementEnabled) {
     sendJson(response, 503, { error: { code: "X402_SETTLEMENT_DISABLED", message: "Testnet settlement is disabled by default." } });
+    return;
+  }
+
+  let supported;
+  try {
+    supported = await dependencies.facilitator.supported();
+  } catch (error) {
+    adapterFailure(response, error, "support");
+    return;
+  }
+  const supportsStellarExact = Array.isArray(supported.kinds) && supported.kinds.some((kind) =>
+    kind.x402Version === X402_VERSION
+    && kind.scheme === "exact"
+    && kind.network === dependencies.config.network
+    && kind.extra?.areFeesSponsored === true
+  );
+  if (!supportsStellarExact) {
+    sendJson(response, 502, {
+      error: {
+        code: "X402_FACILITATOR_UNSUPPORTED",
+        message: "Facilitator does not advertise sponsored x402 v2 exact support for stellar:testnet."
+      }
+    });
     return;
   }
 
@@ -197,7 +230,8 @@ export async function handlePaidAuditRequest(
   }
   const settlementMismatch = settlement.network !== required.accepts[0].network
     || (settlement.amount !== undefined && settlement.amount !== required.accepts[0].amount)
-    || !/^0x[a-fA-F0-9]{64}$/.test(settlement.transaction);
+    || !/^[a-fA-F0-9]{64}$/.test(settlement.transaction)
+    || (settlement.payer !== undefined && !validateStellarDestinationAddress(settlement.payer));
   if (settlementMismatch) {
     sendJson(response, 502, {
       error: { code: "INVALID_SETTLEMENT_RESPONSE", message: "Facilitator settlement does not match the exact Testnet requirements." }

@@ -8,9 +8,13 @@
     "type": "git",
     "url": "git+https://github.com/CaBsCrypto/website-intelligence-provider.git"
   },
-  "bugs": { "url": "https://github.com/CaBsCrypto/website-intelligence-provider/issues" },
+  "bugs": {
+    "url": "https://github.com/CaBsCrypto/website-intelligence-provider/issues"
+  },
   "type": "module",
-  "engines": { "node": ">=22.18" },
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "build": "tsc --project tsconfig.build.json",
     "start": "npm run build && node --env-file-if-exists=.env.local work/build/src/server.js",
@@ -22,5 +26,9 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@x402/core": "2.23.0",
+    "@x402/stellar": "2.23.0"
   }
 }

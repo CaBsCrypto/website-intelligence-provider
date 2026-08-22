@@ -62,7 +62,7 @@ Request / Solicitud:
 
 `language` is optional and defaults to `en`. Supported values are `en` and `es`.
 
-## x402 Testnet provider slice
+## x402 Stellar Testnet provider slice
 
 The feature branch exposes one payment-protected resource: `POST /v1/x402/audits`. It implements the x402 v2 HTTP transport and returns an actual HTTP `402 Payment Required` with a base64-encoded `PaymentRequired` object in `PAYMENT-REQUIRED`.
 
@@ -71,15 +71,17 @@ La rama de funcionalidad expone un recurso protegido: `POST /v1/x402/audits`. Im
 Exact-price contract:
 
 - Scheme: `exact`
-- Network: Base Sepolia, CAIP-2 `eip155:84532`
-- Asset: Testnet USDC `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
-- Amount: `1000` atomic units (`0.001000` USDC at 6 decimals)
+- Network: Stellar Testnet, CAIP-2 `stellar:testnet`
+- Asset: SEP-41 Testnet USDC contract `CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA`
+- Amount: `10000` atomic units (`0.0010000` USDC at 7 decimals)
+- Fees: facilitator-sponsored, advertised as `extra.areFeesSponsored: true`
+- SDK compatibility: pinned `@x402/stellar@2.23.0`, `ExactStellarScheme`
 - Settlement: disabled by default
-- Recipient: supplied at runtime through `X402_PAY_TO`
+- Recipient: Stellar G- or C-address supplied through `X402_STELLAR_PAY_TO`
 
-The retry request carries the x402 v2 `PaymentPayload` in `PAYMENT-SIGNATURE`. The provider checks protocol version, exact requirements, resource URL, recipient, amount, and a SHA-256 request binding before calling the facilitator adapter. It calls `/verify` before producing a payable result and `/settle` before releasing that result. Settlement failure returns `402` and withholds provider output.
+The retry request carries an x402 v2 Stellar `PaymentPayload` in `PAYMENT-SIGNATURE`; its `payload.transaction` is the base64 transaction XDR containing the signed Soroban authorization entries. The provider validates protocol version, exact Stellar requirements, resource URL, and SHA-256 request binding before crossing the facilitator boundary. With settlement enabled it first checks `/supported` for sponsored `exact` support on `stellar:testnet`, then calls `/verify` and `/settle`. Settlement failure returns `402` and withholds provider output.
 
-El reintento envía `PaymentPayload` en `PAYMENT-SIGNATURE`. El proveedor valida versión, precio, red, recurso, destinatario, monto y binding SHA-256 antes de invocar el adaptador. Si la liquidación falla, retiene el resultado y devuelve `402`.
+El reintento envía `PaymentPayload` en `PAYMENT-SIGNATURE`. El proveedor valida versión, requisitos exactos de Stellar, recurso y binding SHA-256 antes de invocar el adaptador; el facilitador valida en el XDR firmado el activo, destinatario, monto y autorizaciones Soroban. Si la liquidación falla, retiene el resultado y devuelve `402`.
 
 Successful responses include:
 
@@ -94,13 +96,15 @@ Copy `.env.example` to the ignored `.env.local` file. `npm start` loads that fil
 
 ```dotenv
 X402_PUBLIC_BASE_URL=http://127.0.0.1:8787
-X402_PAY_TO=0xYourBaseSepoliaRecipientAddress
-X402_FACILITATOR_URL=https://your-testnet-facilitator.example
+X402_STELLAR_PAY_TO=GYourStellarTestnetRecipientAddress
+X402_FACILITATOR_URL=https://www.x402.org/facilitator
 X402_SETTLEMENT_ENABLED=false
 X402_FACILITATOR_BEARER_TOKEN=
 ```
 
-`X402_PUBLIC_BASE_URL` must be the externally visible origin used by the buyer. `X402_PAY_TO` must be a 20-byte EVM address controlled by the Testnet recipient. `X402_FACILITATOR_URL` is required only when settlement is enabled and must expose x402 v2 `POST /verify` and `POST /settle`. `X402_FACILITATOR_BEARER_TOKEN` is optional and is sent only to that facilitator.
+`X402_PUBLIC_BASE_URL` must be the origin used by the buyer. `X402_STELLAR_PAY_TO` must be a valid Stellar G- or C-address controlled by the Testnet recipient and able to receive the configured USDC asset. The default facilitator is the official public Testnet endpoint; an override must expose x402 v2 `GET /supported`, `POST /verify`, and `POST /settle` and advertise sponsored `exact` support for `stellar:testnet`. The bearer token is optional and the public x402.org Testnet facilitator does not require one.
+
+The buyer harness—not this provider—must use `@x402/stellar` client support and a Stellar Testnet signer capable of signing Soroban authorization entries. It must preserve the `website-intelligence/request-binding` extension from the challenge in its `PaymentPayload`. Provider configuration never accepts a Stellar secret key.
 
 Keep `X402_SETTLEMENT_ENABLED=false` while running protocol, binding and negative tests. Change it to `true` only for an explicitly authorized Testnet settlement run after `npm run check` passes. The bearer token is optional and must remain only in ignored local environment configuration. No private key is required or accepted by this provider.
 
@@ -152,7 +156,7 @@ The HTTP API and output schema use major version `v1` / `1.0`. Breaking response
 - URL credentials and non-HTTP(S) protocols are rejected.
 - Unknown hosts are never fetched.
 - No private keys, custody, wallet signing, Mainnet configuration, or payment secrets are stored.
-- Facilitator network calls are impossible unless `X402_SETTLEMENT_ENABLED=true` and a facilitator URL is configured.
+- Facilitator network calls are impossible unless `X402_SETTLEMENT_ENABLED=true` and `X402_STELLAR_PAY_TO` is valid.
 - `.env`, `.env.*`, build output, caches, and local Vercel metadata are ignored; `.env.example` contains names only.
 - This project is independent: it does not publish to or modify Stellar Bazaar or any other provider.
 

@@ -10,36 +10,53 @@ import type {
   PaymentPayload,
   PaymentRequirements,
   SettlementResponse,
+  SupportedResponse,
   VerifyResponse,
   X402ProviderConfig
 } from "../src/x402/types.js";
+
+const PAY_TO = "GBHEGW3KWOY2OFH767EDALFGCUTBOEVBDQMCKU4APMDLQNBW5QV3W3KO";
+const PAYER = "GBBD47IF6LWK7P7MDEVSCWR7DPUWV3NY3DTQEVFL4NAT4AQH3ZLLFLA5";
+const ASSET = "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA";
+const XDR_FIXTURE = Buffer.from("signed-stellar-xdr-fixture", "utf8").toString("base64");
 
 const config: X402ProviderConfig = {
   enabled: true,
   settlementEnabled: true,
   publicBaseUrl: "https://provider.test",
   endpointPath: "/v1/x402/audits",
-  network: "eip155:84532",
-  asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
-  payTo: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C",
-  amount: "1000",
+  network: "stellar:testnet",
+  asset: ASSET,
+  payTo: PAY_TO,
+  amount: "10000",
   maxTimeoutSeconds: 60
 };
 
 class FakeFacilitator implements FacilitatorAdapter {
+  supportedCalls = 0;
   verifyCalls = 0;
   settleCalls = 0;
 
   constructor(
-    private readonly verifyResult: VerifyResponse = { isValid: true, payer: "0x857b06519E91e3A54538791bDbb0E22373e36b66" },
+    private readonly verifyResult: VerifyResponse = { isValid: true, payer: PAYER },
     private readonly settleResult: SettlementResponse = {
       success: true,
-      payer: "0x857b06519E91e3A54538791bDbb0E22373e36b66",
-      transaction: "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
-      network: "eip155:84532",
-      amount: "1000"
+      payer: PAYER,
+      transaction: "1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
+      network: "stellar:testnet",
+      amount: "10000"
+    },
+    private readonly supportedResult: SupportedResponse = {
+      kinds: [{ x402Version: 2, scheme: "exact", network: "stellar:testnet", extra: { areFeesSponsored: true } }],
+      extensions: [],
+      signers: { "stellar:*": [PAY_TO] }
     }
   ) {}
+
+  async supported(): Promise<SupportedResponse> {
+    this.supportedCalls += 1;
+    return this.supportedResult;
+  }
 
   async verify(): Promise<VerifyResponse> {
     this.verifyCalls += 1;
@@ -69,23 +86,15 @@ async function withServer(
   }
 }
 
-function validPayment(body: object, overrides: Partial<PaymentPayload> = {}): PaymentPayload {
-  const required = createPaymentRequired(config, body);
+async function validPayment(body: object, overrides: Partial<PaymentPayload> = {}): Promise<PaymentPayload> {
+  const required = await createPaymentRequired(config, body);
   const accepted = required.accepts[0] as PaymentRequirements;
   return {
     x402Version: 2,
     resource: required.resource,
     accepted,
     payload: {
-      signature: "0xfixture-signature",
-      authorization: {
-        from: "0x857b06519E91e3A54538791bDbb0E22373e36b66",
-        to: accepted.payTo,
-        value: accepted.amount,
-        validAfter: "1",
-        validBefore: "9999999999",
-        nonce: "0xfixture-nonce"
-      }
+      transaction: XDR_FIXTURE
     },
     extensions: required.extensions,
     ...overrides
@@ -105,8 +114,10 @@ test("protected exact-price endpoint returns a genuine x402 v2 402 challenge", a
     const required = decodeX402Header(encoded);
     assert.equal(required.x402Version, 2);
     assert.equal(required.accepts[0].scheme, "exact");
-    assert.equal(required.accepts[0].amount, "1000");
-    assert.equal(required.accepts[0].network, "eip155:84532");
+    assert.equal(required.accepts[0].amount, "10000");
+    assert.equal(required.accepts[0].network, "stellar:testnet");
+    assert.equal(required.accepts[0].asset, ASSET);
+    assert.equal(required.accepts[0].extra.areFeesSponsored, true);
     assert.equal(required.extensions["website-intelligence/request-binding"].info.requestHash, requestHashFor(body));
     assert.equal(adapter.verifyCalls, 0);
     assert.equal(adapter.settleCalls, 0);
@@ -127,12 +138,34 @@ test("rejects malformed payment headers before facilitator verification", async 
   });
 });
 
+test("rejects an EVM-shaped authorization instead of accepting it as Stellar XDR", async () => {
+  const adapter = new FakeFacilitator();
+  const body = { url: "https://example.com/" };
+  const payment = await validPayment(body);
+  payment.payload = {
+    signature: "fixture-signature",
+    authorization: { from: "payer", to: "payee", value: "10000" }
+  } as unknown as PaymentPayload["payload"];
+  await withServer(adapter, async (origin) => {
+    const response = await fetch(`${origin}${config.endpointPath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(payment) },
+      body: JSON.stringify(body)
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, "INVALID_PAYMENT_HEADER");
+    assert.equal(adapter.supportedCalls, 0);
+    assert.equal(adapter.verifyCalls, 0);
+    assert.equal(adapter.settleCalls, 0);
+  });
+});
+
 test("rejects payment bound to a different request, amount, or resource", async () => {
   const adapter = new FakeFacilitator();
   const body = { url: "https://example.com/", language: "es" };
-  const payment = validPayment(body);
+  const payment = await validPayment(body);
   payment.extensions!["website-intelligence/request-binding"].info.requestHash = "sha256:wrong";
-  payment.accepted = { ...payment.accepted, amount: "999" };
+  payment.accepted = { ...payment.accepted, amount: "9999" };
   payment.resource = { ...payment.resource!, url: "https://provider.test/v1/x402/other" };
   await withServer(adapter, async (origin) => {
     const response = await fetch(`${origin}${config.endpointPath}`, {
@@ -153,7 +186,7 @@ test("does not settle when facilitator verification fails", async () => {
   await withServer(adapter, async (origin) => {
     const response = await fetch(`${origin}${config.endpointPath}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(validPayment(body)) },
+      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(await validPayment(body)) },
       body: JSON.stringify(body)
     });
     assert.equal(response.status, 402);
@@ -164,13 +197,13 @@ test("does not settle when facilitator verification fails", async () => {
 
 test("withholds provider output when settlement fails", async () => {
   const adapter = new FakeFacilitator(undefined, {
-    success: false, errorReason: "insufficient_funds", transaction: "", network: "eip155:84532"
+    success: false, errorReason: "insufficient_funds", transaction: "", network: "stellar:testnet"
   });
   const body = { url: "https://example.com/" };
   await withServer(adapter, async (origin) => {
     const response = await fetch(`${origin}${config.endpointPath}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(validPayment(body)) },
+      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(await validPayment(body)) },
       body: JSON.stringify(body)
     });
     assert.equal(response.status, 402);
@@ -183,13 +216,13 @@ test("withholds provider output when settlement fails", async () => {
 
 test("rejects a successful settlement response that changes network, amount, or transaction", async () => {
   const adapter = new FakeFacilitator(undefined, {
-    success: true, transaction: "0xshort", network: "eip155:1", amount: "999"
+    success: true, transaction: "0xshort", network: "stellar:pubnet", amount: "9999"
   });
   const body = { url: "https://example.com/" };
   await withServer(adapter, async (origin) => {
     const response = await fetch(`${origin}${config.endpointPath}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(validPayment(body)) },
+      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(await validPayment(body)) },
       body: JSON.stringify(body)
     });
     assert.equal(response.status, 502);
@@ -203,7 +236,7 @@ test("does not call facilitator while settlement remains disabled", async () => 
   await withServer(adapter, async (origin) => {
     const response = await fetch(`${origin}${config.endpointPath}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(validPayment(body)) },
+      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(await validPayment(body)) },
       body: JSON.stringify(body)
     });
     assert.equal(response.status, 503);
@@ -211,6 +244,26 @@ test("does not call facilitator while settlement remains disabled", async () => 
     assert.equal(adapter.verifyCalls, 0);
     assert.equal(adapter.settleCalls, 0);
   }, { ...config, settlementEnabled: false });
+});
+
+test("rejects a facilitator that does not advertise sponsored Stellar exact support", async () => {
+  const adapter = new FakeFacilitator(undefined, undefined, {
+    kinds: [{ x402Version: 2, scheme: "exact", network: "stellar:pubnet", extra: { areFeesSponsored: true } }],
+    extensions: [], signers: {}
+  });
+  const body = { url: "https://example.com/" };
+  await withServer(adapter, async (origin) => {
+    const response = await fetch(`${origin}${config.endpointPath}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(await validPayment(body)) },
+      body: JSON.stringify(body)
+    });
+    assert.equal(response.status, 502);
+    assert.equal((await response.json()).error.code, "X402_FACILITATOR_UNSUPPORTED");
+    assert.equal(adapter.supportedCalls, 1);
+    assert.equal(adapter.verifyCalls, 0);
+    assert.equal(adapter.settleCalls, 0);
+  });
 });
 
 test("fails closed when the payment recipient is not configured", async () => {
@@ -234,7 +287,7 @@ test("returns bound output, settlement header, and reconcilable receipt after su
   await withServer(adapter, async (origin) => {
     const response = await fetch(`${origin}${config.endpointPath}`, {
       method: "POST",
-      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(validPayment(body)) },
+      headers: { "content-type": "application/json", "payment-signature": encodeX402Header(await validPayment(body)) },
       body: JSON.stringify(body)
     });
     assert.equal(response.status, 200);
@@ -242,7 +295,8 @@ test("returns bound output, settlement header, and reconcilable receipt after su
     const result = await response.json();
     assert.equal(result.data.language, "es");
     assert.equal(result.receipt.requestHash, requestHashFor(body));
-    assert.equal(result.receipt.payment.amount, "1000");
+    assert.equal(result.receipt.payment.amount, "10000");
+    assert.equal(result.receipt.payment.network, "stellar:testnet");
     assert.equal(adapter.verifyCalls, 1);
     assert.equal(adapter.settleCalls, 1);
     assert.deepEqual(reconcileReceipt(result.receipt, {
