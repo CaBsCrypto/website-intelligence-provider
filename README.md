@@ -52,6 +52,7 @@ curl -s http://127.0.0.1:8787/v1/audits \
 | `GET` | `/v1/service-card` | Versioned Service Card |
 | `GET` | `/v1/fixtures` | Available local fixture identifiers |
 | `POST` | `/v1/audits` | Run a deterministic fixture audit |
+| `POST` | `/v1/x402/audits` | Run the same audit behind an exact-price x402 Testnet challenge |
 
 Request / Solicitud:
 
@@ -60,6 +61,50 @@ Request / Solicitud:
 ```
 
 `language` is optional and defaults to `en`. Supported values are `en` and `es`.
+
+## x402 Testnet provider slice
+
+The feature branch exposes one payment-protected resource: `POST /v1/x402/audits`. It implements the x402 v2 HTTP transport and returns an actual HTTP `402 Payment Required` with a base64-encoded `PaymentRequired` object in `PAYMENT-REQUIRED`.
+
+La rama de funcionalidad expone un recurso protegido: `POST /v1/x402/audits`. Implementa el transporte HTTP x402 v2 y devuelve un `402 Payment Required` real con `PaymentRequired` codificado en base64 dentro de `PAYMENT-REQUIRED`.
+
+Exact-price contract:
+
+- Scheme: `exact`
+- Network: Base Sepolia, CAIP-2 `eip155:84532`
+- Asset: Testnet USDC `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
+- Amount: `1000` atomic units (`0.001000` USDC at 6 decimals)
+- Settlement: disabled by default
+- Recipient: supplied at runtime through `X402_PAY_TO`
+
+The retry request carries the x402 v2 `PaymentPayload` in `PAYMENT-SIGNATURE`. The provider checks protocol version, exact requirements, resource URL, recipient, amount, and a SHA-256 request binding before calling the facilitator adapter. It calls `/verify` before producing a payable result and `/settle` before releasing that result. Settlement failure returns `402` and withholds provider output.
+
+El reintento envía `PaymentPayload` en `PAYMENT-SIGNATURE`. El proveedor valida versión, precio, red, recurso, destinatario, monto y binding SHA-256 antes de invocar el adaptador. Si la liquidación falla, retiene el resultado y devuelve `402`.
+
+Successful responses include:
+
+- x402 `SettlementResponse` in the `PAYMENT-RESPONSE` header;
+- the deterministic audit in `data`;
+- a provider receipt containing request hash, output hash, exact payment terms, payer and transaction;
+- a reconciliation contract that detects receipt or request/output tampering.
+
+### Buyer-harness environment
+
+Copy `.env.example` to the ignored `.env.local` file. `npm start` loads that file automatically on Node.js 22.18+. Required values:
+
+```dotenv
+X402_PUBLIC_BASE_URL=http://127.0.0.1:8787
+X402_PAY_TO=0xYourBaseSepoliaRecipientAddress
+X402_FACILITATOR_URL=https://your-testnet-facilitator.example
+X402_SETTLEMENT_ENABLED=false
+X402_FACILITATOR_BEARER_TOKEN=
+```
+
+`X402_PUBLIC_BASE_URL` must be the externally visible origin used by the buyer. `X402_PAY_TO` must be a 20-byte EVM address controlled by the Testnet recipient. `X402_FACILITATOR_URL` is required only when settlement is enabled and must expose x402 v2 `POST /verify` and `POST /settle`. `X402_FACILITATOR_BEARER_TOKEN` is optional and is sent only to that facilitator.
+
+Keep `X402_SETTLEMENT_ENABLED=false` while running protocol, binding and negative tests. Change it to `true` only for an explicitly authorized Testnet settlement run after `npm run check` passes. The bearer token is optional and must remain only in ignored local environment configuration. No private key is required or accepted by this provider.
+
+Mantén `X402_SETTLEMENT_ENABLED=false` durante las pruebas. Cámbialo a `true` únicamente para una liquidación Testnet autorizada después de superar `npm run check`. No se requiere ni se acepta una clave privada.
 
 ## MCP-shaped stdio contract / Contrato MCP por stdio
 
@@ -80,9 +125,9 @@ Bundled hosts:
 - `stellar.local`
 - `demo.stellar.local`
 
-The same provider version and normalized input always produce the same score and findings. Output excludes timestamps, DNS state, live HTTP state, environment-derived content, secrets, wallets, and payment data.
+The same provider version and normalized input always produce the same audit score and findings. Audit output excludes timestamps, DNS state, live HTTP state, environment-derived content, and secrets. The protected endpoint adds an x402 settlement receipt around that deterministic output.
 
-La misma versión e input normalizado siempre generan la misma puntuación y hallazgos. La salida excluye fechas, DNS, estado HTTP real, contenido dependiente del entorno, secretos, wallets y datos de pago.
+La misma versión e input normalizado siempre generan la misma puntuación y hallazgos. El endpoint protegido agrega un recibo x402 alrededor de esa salida determinista.
 
 ## Deploying a separate Vercel project / Desplegar como proyecto separado
 
@@ -106,7 +151,9 @@ The HTTP API and output schema use major version `v1` / `1.0`. Breaking response
 - No outbound HTTP client exists in the audit path.
 - URL credentials and non-HTTP(S) protocols are rejected.
 - Unknown hosts are never fetched.
-- No secrets, tokens, payment data, or wallet functionality are used.
+- No private keys, custody, wallet signing, Mainnet configuration, or payment secrets are stored.
+- Facilitator network calls are impossible unless `X402_SETTLEMENT_ENABLED=true` and a facilitator URL is configured.
+- `.env`, `.env.*`, build output, caches, and local Vercel metadata are ignored; `.env.example` contains names only.
 - This project is independent: it does not publish to or modify Stellar Bazaar or any other provider.
 
 ## License

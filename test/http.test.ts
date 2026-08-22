@@ -15,8 +15,10 @@ test("serves Service Card and bilingual audits over HTTP", async (context) => {
   assert.equal(root.service, "website-intelligence");
 
   const card = await fetch(`${origin}/v1/service-card`).then((response) => response.json());
-  assert.equal(card.version, "1.0.0");
+  assert.equal(card.version, "1.1.0");
   assert.equal(card.networkPolicy.default, "deny");
+  assert.equal(card.payments.environment, "testnet");
+  assert.equal(card.payments.settlementDefault, "disabled");
 
   const response = await fetch(`${origin}/v1/audits`, {
     method: "POST",
