@@ -110,6 +110,10 @@ Keep `X402_SETTLEMENT_ENABLED=false` while running protocol, binding and negativ
 
 Mantén `X402_SETTLEMENT_ENABLED=false` durante las pruebas. Cámbialo a `true` únicamente para una liquidación Testnet autorizada después de superar `npm run check`. No se requiere ni se acepta una clave privada.
 
+### Seller listing attestation / Attestation del listado del vendedor
+
+Before a later Testnet payment, the seller may publish a separate, seller-signed `Manage Data` attestation. `buildUnsignedListingAttestation` prepares an **unsigned** Testnet XDR carrying only the SHA-256 hash of this provider's Service Card under `bazaar:service-card:v1`. It contains no customer data, API keys, prices, wallets beyond the seller public address, or provider output. Signing and submission are deliberately outside this provider and require a separately authorized transaction.
+
 ## MCP-shaped stdio contract / Contrato MCP por stdio
 
 ```sh
