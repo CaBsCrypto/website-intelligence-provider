@@ -97,16 +97,16 @@ Copy `.env.example` to the ignored `.env.local` file. `npm start` loads that fil
 ```dotenv
 X402_PUBLIC_BASE_URL=http://127.0.0.1:8787
 X402_STELLAR_PAY_TO=GYourStellarTestnetRecipientAddress
-X402_FACILITATOR_URL=https://www.x402.org/facilitator
+X402_FACILITATOR_URL=https://channels.openzeppelin.com/x402/testnet
 X402_SETTLEMENT_ENABLED=false
-X402_FACILITATOR_BEARER_TOKEN=
+X402_FACILITATOR_API_KEY=
 ```
 
-`X402_PUBLIC_BASE_URL` must be the origin used by the buyer. `X402_STELLAR_PAY_TO` must be a valid Stellar G- or C-address controlled by the Testnet recipient and able to receive the configured USDC asset. The default facilitator is the official public Testnet endpoint; an override must expose x402 v2 `GET /supported`, `POST /verify`, and `POST /settle` and advertise sponsored `exact` support for `stellar:testnet`. The bearer token is optional and the public x402.org Testnet facilitator does not require one.
+`X402_PUBLIC_BASE_URL` must be the origin used by the buyer. `X402_STELLAR_PAY_TO` must be a valid Stellar G- or C-address controlled by the Testnet recipient and able to receive the configured USDC asset. The default facilitator is OpenZeppelin Channels for Stellar Testnet; it requires a server-only API key for its `supported`, `verify`, and `settle` calls. An override must expose x402 v2 `GET /supported`, `POST /verify`, and `POST /settle` and advertise sponsored `exact` support for `stellar:testnet`.
 
 The buyer harness—not this provider—must use `@x402/stellar` client support and a Stellar Testnet signer capable of signing Soroban authorization entries. It must preserve the `website-intelligence/request-binding` extension from the challenge in its `PaymentPayload`. Provider configuration never accepts a Stellar secret key.
 
-Keep `X402_SETTLEMENT_ENABLED=false` while running protocol, binding and negative tests. Change it to `true` only for an explicitly authorized Testnet settlement run after `npm run check` passes. The bearer token is optional and must remain only in ignored local environment configuration. No private key is required or accepted by this provider.
+Keep `X402_SETTLEMENT_ENABLED=false` while running protocol, binding and negative tests. Change it to `true` only for an explicitly authorized Testnet settlement run after `npm run check` passes. The API key must remain only in ignored local environment configuration. No private key is required or accepted by this provider.
 
 Mantén `X402_SETTLEMENT_ENABLED=false` durante las pruebas. Cámbialo a `true` únicamente para una liquidación Testnet autorizada después de superar `npm run check`. No se requiere ni se acepta una clave privada.
 

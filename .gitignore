@@ -8,5 +8,6 @@ coverage/
 graphify-out/
 work/
 outputs/
+.npm-cache-local/
 
 .vercel

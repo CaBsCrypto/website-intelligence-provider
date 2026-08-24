@@ -32,7 +32,7 @@
       "extra": { "areFeesSponsored": true },
       "payload": { "transaction": "base64 Soroban transaction XDR with signed auth entries" },
       "compatibility": { "package": "@x402/stellar", "version": "2.23.0", "scheme": "ExactStellarScheme" },
-      "facilitator": { "defaultUrl": "https://www.x402.org/facilitator", "requiredCapability": "x402-v2 exact stellar:testnet sponsored" },
+      "facilitator": { "defaultUrl": "https://channels.openzeppelin.com/x402/testnet", "requiredCapability": "x402-v2 exact stellar:testnet sponsored" },
       "requestBinding": { "algorithm": "sha256", "extension": "website-intelligence/request-binding" },
       "receiptSchemaVersion": "1.0"
     }]

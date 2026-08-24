@@ -6,7 +6,12 @@ import {
   validateStellarDestinationAddress
 } from "@x402/stellar";
 
-export const X402_OFFICIAL_TESTNET_FACILITATOR = "https://www.x402.org/facilitator";
+/**
+ * OpenZeppelin Channels is the facilitator selected for the Stellar Testnet
+ * pilot. It requires an API key at runtime; settlement stays disabled unless
+ * both a valid recipient and the explicit flag are supplied.
+ */
+export const X402_OPENZEPPELIN_TESTNET_FACILITATOR = "https://channels.openzeppelin.com/x402/testnet";
 
 export const X402_TESTNET_DEFAULTS = {
   endpointPath: "/v1/x402/audits",
@@ -30,9 +35,13 @@ export function loadX402Config(env: NodeJS.ProcessEnv = process.env): X402Provid
 
 export function createRuntimeX402Dependencies(env: NodeJS.ProcessEnv = process.env): X402Dependencies {
   const config = loadX402Config(env);
-  const facilitatorUrl = env.X402_FACILITATOR_URL ?? X402_OFFICIAL_TESTNET_FACILITATOR;
+  const facilitatorUrl = env.X402_FACILITATOR_URL ?? X402_OPENZEPPELIN_TESTNET_FACILITATOR;
+  // Keep the credential server-only. The legacy bearer variable is accepted
+  // locally for a non-breaking migration, but documentation uses the clearer
+  // API-key name used by the selected facilitator.
+  const facilitatorApiKey = env.X402_FACILITATOR_API_KEY ?? env.X402_FACILITATOR_BEARER_TOKEN;
   const facilitator = config.enabled && config.settlementEnabled
-    ? new HttpFacilitatorAdapter({ baseUrl: facilitatorUrl, bearerToken: env.X402_FACILITATOR_BEARER_TOKEN })
+    ? new HttpFacilitatorAdapter({ baseUrl: facilitatorUrl, bearerToken: facilitatorApiKey })
     : new DisabledFacilitatorAdapter();
   return { config, facilitator };
 }

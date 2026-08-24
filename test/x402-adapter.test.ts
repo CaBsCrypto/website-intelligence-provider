@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { ExactStellarScheme } from "@x402/stellar/exact/server";
 import { USDC_TESTNET_ADDRESS, validateStellarDestinationAddress } from "@x402/stellar";
 import { DisabledFacilitatorAdapter, FacilitatorAdapterError, HttpFacilitatorAdapter } from "../src/x402/adapter.js";
-import { X402_OFFICIAL_TESTNET_FACILITATOR, loadX402Config } from "../src/x402/config.js";
+import { X402_OPENZEPPELIN_TESTNET_FACILITATOR, loadX402Config } from "../src/x402/config.js";
 import { paymentRequirementsFor } from "../src/x402/provider.js";
 import type { FacilitatorRequest, X402ProviderConfig } from "../src/x402/types.js";
 
@@ -58,7 +58,7 @@ test("runtime configuration is Stellar Testnet-only and settlement-off by defaul
 
   const evmAddress = loadX402Config({ X402_STELLAR_PAY_TO: "0x209693Bc6afc0C5328bA36FaF03C514EF312287C" });
   assert.equal(evmAddress.enabled, false);
-  assert.equal(X402_OFFICIAL_TESTNET_FACILITATOR, "https://www.x402.org/facilitator");
+  assert.equal(X402_OPENZEPPELIN_TESTNET_FACILITATOR, "https://channels.openzeppelin.com/x402/testnet");
 });
 
 test("payment requirements are enhanced through @x402/stellar exact server compatibility", async () => {
