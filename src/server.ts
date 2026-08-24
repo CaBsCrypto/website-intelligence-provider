@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { pathToFileURL } from "node:url";
 import { fixtureIds } from "./fixtures.js";
 import { handleAuditRequest, sendJson } from "./http.js";
 import { serviceCard } from "./service-card.js";
@@ -26,6 +27,8 @@ export function createAppServer(x402: X402Dependencies = createRuntimeX402Depend
 
 export const server = createAppServer();
 
-if (import.meta.url === `file://${process.argv[1].replaceAll("\\", "/")}`) {
+// `file://${path}` breaks on Windows (`file://C:/...`). Use Node's URL helper so
+// the standalone provider starts consistently on the development host as well.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   server.listen(port, "127.0.0.1", () => console.log(`website-intelligence listening on http://127.0.0.1:${port}`));
 }
