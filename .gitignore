@@ -1,0 +1,12 @@
+node_modules/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.vercel/
+graphify-out/
+work/
+outputs/
+
+.vercel

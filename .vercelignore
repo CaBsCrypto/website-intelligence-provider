@@ -1,0 +1,10 @@
+.git/
+.vercel/
+graphify-out/
+node_modules/
+coverage/
+outputs/
+work/
+*.log
+.env
+.env.*
