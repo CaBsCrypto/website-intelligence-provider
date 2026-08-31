@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import { server } from "../src/server.js";
+import { serviceCardSha256 } from "../src/x402/canonical.js";
 
 test("serves Service Card and bilingual audits over HTTP", async (context) => {
   server.listen(0, "127.0.0.1");
@@ -16,7 +17,15 @@ test("serves Service Card and bilingual audits over HTTP", async (context) => {
 
   const card = await fetch(`${origin}/v1/service-card`).then((response) => response.json());
   assert.equal(card.version, "1.0.0");
+  assert.equal(card.schemaVersion, "1.0");
+  assert.equal(card.interfaces.http.path, "/v1/x402/audits");
+  assert.equal(card.payment.enabled, false);
   assert.equal(card.networkPolicy.default, "deny");
+  assert.equal(card.payment.network, "stellar:testnet");
+  assert.equal(card.payment.atomicAmount, "10000");
+  assert.equal(card.payment.assetDecimals, 7);
+  assert.equal(card.payment.binding.route, "/v1/x402/audits");
+  assert.equal(card.payment.binding.cardHash, serviceCardSha256(card));
 
   const response = await fetch(`${origin}/v1/audits`, {
     method: "POST",

@@ -1,0 +1,44 @@
+{
+  "schemaVersion": "1.0",
+  "id": "website-intelligence",
+  "version": "1.0.0",
+  "name": { "en": "Website Intelligence", "es": "Inteligencia de Sitios Web" },
+  "description": {
+    "en": "Deterministic local-fixture website audit provider.",
+    "es": "Proveedor de auditoría web determinista mediante fixtures locales."
+  },
+  "input": { "contentType": "application/json", "schema": { "url": "absolute http(s) URL", "language": "en | es (optional)" } },
+  "output": { "contentType": "application/json", "schemaVersion": "1.0" },
+  "delivery": { "model": "sync" },
+  "capabilities": ["identity", "security", "seo", "accessibility", "performance", "x402-exact-testnet"],
+  "interfaces": {
+    "http": { "method": "POST", "path": "/v1/x402/audits" },
+    "mcp": { "tool": "audit_website" }
+  },
+  "networkPolicy": {
+    "default": "deny",
+    "fixtureOnly": true,
+    "auditOutboundRequests": false,
+    "facilitatorOutboundRequests": "only-when-X402_SETTLEMENT_ENABLED=true"
+  },
+  "determinism": { "guaranteedForSameVersionAndInput": true, "clockDataIncluded": false },
+  "license": "Apache-2.0",
+  "payment": {
+    "enabled": false,
+    "network": "stellar:testnet",
+    "scheme": "exact",
+    "asset": "CBIELTK6YBZJU5UP2WWQEUCYKLPU6AUNZ2BQ4WWFEIE3USCIHMXQDAMA",
+    "atomicAmount": "10000",
+    "assetDecimals": 7,
+    "payTo": "",
+    "maxTimeoutSeconds": 60,
+    "challengeTtlSeconds": 60,
+    "binding": {
+      "method": "POST",
+      "route": "/v1/x402/audits",
+      "resourceUrl": "https://invalid.local/v1/x402/audits",
+      "inputHashAlgorithm": "sha256-canonical-json-v1",
+      "cardHash": "cd4158cf5abd208e364c8df939ea2892a957e47ab82e591850ff3a079461b2aa"
+    }
+  }
+}

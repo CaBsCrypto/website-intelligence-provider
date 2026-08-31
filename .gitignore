@@ -1,10 +1,15 @@
 node_modules/
 coverage/
 .env
+.env.*
+!.env.example
 *.log
 .vercel/
 graphify-out/
 work/
 outputs/
-
-.vercel
+.npm-cache-local/
+.npm-cache-codex/
+.localappdata-codex/
+.keys/
+secrets/
