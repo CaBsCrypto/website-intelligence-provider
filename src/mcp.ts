@@ -12,7 +12,7 @@ const tool = {
 
 export function handleRpc(message: any): any {
   const base = { jsonrpc: "2.0", id: message.id };
-  if (message.method === "initialize") return { ...base, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "website-intelligence", version: "1.0.0" } } };
+  if (message.method === "initialize") return { ...base, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "website-intelligence", version: "1.1.0" } } };
   if (message.method === "notifications/initialized") return undefined;
   if (message.method === "tools/list") return { ...base, result: { tools: [tool] } };
   if (message.method === "tools/call" && message.params?.name === tool.name) {
