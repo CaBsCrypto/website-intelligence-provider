@@ -7,6 +7,7 @@ import { createRuntimeX402Dependencies } from "./x402/config.js";
 import { handlePaidAuditRequest } from "./x402/provider.js";
 import { createPaymentReplayStore, createSettlementAttemptGuard } from "./x402/settlement-attempt-guard.js";
 import type { X402Dependencies } from "./x402/types.js";
+import { handleDeliveryRecovery, RECOVERY_PATH } from "./x402/recovery.js";
 
 const port = Number(process.env.PORT ?? 8787);
 
@@ -28,6 +29,8 @@ export function createAppServer(input?: X402DependencyInput) {
     if (request.method === "GET" && request.url === "/v1/fixtures") return sendJson(response, 200, { fixtures: fixtureIds() });
     if (request.method === "POST" && request.url === "/v1/audits") return handleAuditRequest(request, response);
     if (request.method === "POST" && request.url === "/v1/x402/audits") return handlePaidAuditRequest(request, response, x402);
+    if (request.method === "POST" && request.url === RECOVERY_PATH) return handleDeliveryRecovery(request, response, x402);
+    if (request.url === RECOVERY_PATH) { response.setHeader("allow", "POST"); return sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "Use POST for recovery." } }); }
     if (request.url === "/v1/x402/audits") {
       response.setHeader("allow", "POST");
       return sendJson(response, 405, { error: { code: "METHOD_NOT_ALLOWED", message: "Use POST for this route." } });

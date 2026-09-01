@@ -8,6 +8,7 @@ import { canonicalJson, sha256 } from "./canonical.js";
 import { decodeX402Header, encodeX402Header, X402HeaderError } from "./encoding.js";
 import { createReceipt } from "./receipt.js";
 import { serviceCardHashForConfig } from "../service-card.js";
+import { createRecoveryBinding } from "./recovery.js";
 import {
   X402_BINDING_EXTENSION,
   X402_VERSION,
@@ -28,7 +29,9 @@ const BINDING_SCHEMA = {
     method: { const: "POST" },
     route: { const: "/v1/x402/audits" },
     inputHash: { type: "string", pattern: "^[a-f0-9]{64}$" },
-    cardHash: { type: "string", pattern: "^[a-f0-9]{64}$" }
+    cardHash: { type: "string", pattern: "^[a-f0-9]{64}$" },
+    requestId: { type: "string", pattern: "^[a-f0-9]{32}$" },
+    recoveryProof: { type: "string", pattern: "^[a-f0-9]{64}$" }
   },
   additionalProperties: false
 } as const;
@@ -61,7 +64,7 @@ export async function paymentRequirementsFor(config: X402ProviderConfig): Promis
   return enhanced as PaymentRequirements;
 }
 
-export async function createPaymentRequired(config: X402ProviderConfig, request: unknown, error = "PAYMENT-SIGNATURE header is required"): Promise<PaymentRequired> {
+export async function createPaymentRequired(config: X402ProviderConfig, request: unknown, error = "PAYMENT-SIGNATURE header is required", recovery?: { requestId: string; proof: string }): Promise<PaymentRequired> {
   return {
     x402Version: X402_VERSION,
     error,
@@ -78,7 +81,8 @@ export async function createPaymentRequired(config: X402ProviderConfig, request:
           method: "POST",
           route: config.endpointPath,
           inputHash: requestHashFor(request),
-          cardHash: serviceCardHashForConfig(config)
+          cardHash: serviceCardHashForConfig(config),
+          ...(recovery ? { requestId: recovery.requestId, recoveryProof: recovery.proof } : {})
         },
         schema: BINDING_SCHEMA
       }
@@ -162,11 +166,38 @@ export async function handlePaidAuditRequest(
     return;
   }
 
-  const required = await createPaymentRequired(dependencies.config, body);
+  const recoveryProof = request.headers["x-bazaar-recovery-proof"];
+  const recoveryRequestId = request.headers["x-bazaar-request-id"];
+  const recoveryRequested = recoveryProof !== undefined || recoveryRequestId !== undefined;
+  if (recoveryRequested && (typeof recoveryProof !== "string" || typeof recoveryRequestId !== "string" || !/^[0-9a-f]{64}$/.test(recoveryProof) || !/^[0-9a-f]{32}$/.test(recoveryRequestId))) {
+    sendJson(response, 400, { error: { code: "RECOVERY_BINDING_INVALID", message: "Recovery binding must include a valid request ID and proof." } });
+    return;
+  }
+  const recoveryHeaders = recoveryRequested ? { requestId: recoveryRequestId as string, proof: recoveryProof as string } : undefined;
+  const required = await createPaymentRequired(dependencies.config, body, "PAYMENT-SIGNATURE header is required", recoveryHeaders);
+  const proposedIntent = recoveryHeaders ? { ...recoveryHeaders, inputHash: requestHashFor(body), cardHash: required.extensions[X402_BINDING_EXTENSION].info.cardHash as string } : undefined;
   const encodedPayment = request.headers["payment-signature"];
   if (!encodedPayment || Array.isArray(encodedPayment)) {
+    if (proposedIntent) {
+      try {
+        const state = await dependencies.paymentReplayStore.reserveRecoveryIntent(proposedIntent);
+        if (state === "conflict") { sendJson(response, 409, { error: { code: "RECOVERY_INTENT_CONFLICT", message: "Request ID is already committed to another recovery intent." } }); return; }
+      } catch {
+        sendJson(response, 503, { error: { code: "DURABLE_STORE_UNAVAILABLE", message: "Recovery intent cannot be reserved." } }); return;
+      }
+    }
     paymentRequiredResponse(response, required, "PAYMENT-SIGNATURE header is required");
     return;
+  }
+  let recovery;
+  if (proposedIntent) {
+    try {
+      const committed = await dependencies.paymentReplayStore.getRecoveryIntent(proposedIntent.requestId);
+      if (!committed || canonicalJson(committed) !== canonicalJson(proposedIntent)) { sendJson(response, 409, { error: { code: "RECOVERY_INTENT_MISMATCH", message: "Paid retry does not match the durable recovery intent from the 402 challenge." } }); return; }
+      recovery = createRecoveryBinding(committed);
+    } catch {
+      sendJson(response, 503, { error: { code: "DURABLE_STORE_UNAVAILABLE", message: "Recovery intent cannot be verified." } }); return;
+    }
   }
 
   let payment: PaymentPayload;
@@ -265,7 +296,8 @@ export async function handlePaidAuditRequest(
       sendJson(response, 200, {
         result: priorDelivery.result,
         resultHash: priorDelivery.resultHash,
-        receipt: priorDelivery.receipt
+        receipt: priorDelivery.receipt,
+        recovery: priorDelivery.recovery ? { available: true, recoveryId: priorDelivery.recovery.recoveryId, requestId: priorDelivery.recovery.requestId, expiresAt: priorDelivery.recovery.expiresAt } : { available: false }
       }, { "payment-response": priorDelivery.paymentResponse });
       return;
     }
@@ -328,7 +360,8 @@ export async function handlePaidAuditRequest(
       result: output,
       resultHash,
       receipt,
-      paymentResponse
+      paymentResponse,
+      recovery
     });
   } catch {
     sendJson(response, 503, {
@@ -336,5 +369,5 @@ export async function handlePaidAuditRequest(
     }, { "payment-response": paymentResponse });
     return;
   }
-  sendJson(response, 200, { result: output, resultHash, receipt }, { "payment-response": paymentResponse });
+  sendJson(response, 200, { result: output, resultHash, receipt, recovery: recovery ? { available: true, recoveryId: recovery.recoveryId, requestId: recovery.requestId, expiresAt: recovery.expiresAt } : { available: false } }, { "payment-response": paymentResponse });
 }

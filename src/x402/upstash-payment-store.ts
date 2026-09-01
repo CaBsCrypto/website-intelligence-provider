@@ -1,4 +1,5 @@
-import type { PaymentDeliveryRecord, PaymentReplayStore } from "./types.js";
+import type { PaymentDeliveryRecord, PaymentReplayStore, RecoveryIntent } from "./types.js";
+import { canonicalJson } from "./canonical.js";
 
 type FetchLike = typeof fetch;
 
@@ -30,13 +31,41 @@ export class UpstashPaymentStore implements PaymentReplayStore {
   }
 
   async commitDelivery(fingerprint: string, delivery: PaymentDeliveryRecord): Promise<void> {
-    const script = "redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2]); redis.call('SET', KEYS[1], 'committed', 'EX', ARGV[2]); return 1";
-    const result = await this.command(["EVAL", script, "2", this.reservationKey(fingerprint), this.deliveryKey(fingerprint), JSON.stringify(delivery), "86400"]);
+    const script = delivery.recovery
+      ? "redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2]); redis.call('SET', KEYS[3], ARGV[1], 'EX', ARGV[2]); redis.call('SET', KEYS[1], 'committed', 'EX', ARGV[2]); return 1"
+      : "redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2]); redis.call('SET', KEYS[1], 'committed', 'EX', ARGV[2]); return 1";
+    const keys = delivery.recovery ? [this.reservationKey(fingerprint), this.deliveryKey(fingerprint), this.recoveryKey(delivery.recovery.recoveryId)] : [this.reservationKey(fingerprint), this.deliveryKey(fingerprint)];
+    const result = await this.command(["EVAL", script, String(keys.length), ...keys, JSON.stringify(delivery), "86400"]);
     if (result !== 1) throw new Error("DURABLE_STORE_COMMIT_FAILED");
+  }
+
+  async getRecovery(recoveryId: string): Promise<PaymentDeliveryRecord | null> {
+    const value = await this.command(["GET", this.recoveryKey(recoveryId)]);
+    if (value === null) return null;
+    if (typeof value !== "string") throw new Error("DURABLE_STORE_RESPONSE_INVALID");
+    return JSON.parse(value) as PaymentDeliveryRecord;
+  }
+
+  async reserveRecoveryIntent(intent: RecoveryIntent): Promise<"created" | "matched" | "conflict"> {
+    const encoded = canonicalJson(intent);
+    const created = await this.command(["SET", this.recoveryIntentKey(intent.requestId), encoded, "NX", "EX", "300"]);
+    if (created === "OK") return "created";
+    const prior = await this.command(["GET", this.recoveryIntentKey(intent.requestId)]);
+    if (typeof prior !== "string") return "conflict";
+    return prior === encoded ? "matched" : "conflict";
+  }
+
+  async getRecoveryIntent(requestId: string): Promise<RecoveryIntent | null> {
+    const value = await this.command(["GET", this.recoveryIntentKey(requestId)]);
+    if (value === null) return null;
+    if (typeof value !== "string") throw new Error("DURABLE_STORE_RESPONSE_INVALID");
+    return JSON.parse(value) as RecoveryIntent;
   }
 
   private reservationKey(fingerprint: string): string { return `${this.prefix}:reservation:${fingerprint}`; }
   private deliveryKey(fingerprint: string): string { return `${this.prefix}:delivery:${fingerprint}`; }
+  private recoveryKey(recoveryId: string): string { return `${this.prefix}:recovery:${recoveryId}`; }
+  private recoveryIntentKey(requestId: string): string { return `${this.prefix}:recovery-intent:${requestId}`; }
 
   private async command(command: string[]): Promise<unknown> {
     const response = await this.fetchImpl(this.url, {
