@@ -5,6 +5,8 @@ import { createAppServer } from "../src/server.js";
 import { encodeX402Header, decodeX402Header } from "../src/x402/encoding.js";
 import { createPaymentRequired, requestHashFor } from "../src/x402/provider.js";
 import { reconcileReceipt } from "../src/x402/receipt.js";
+import { recoveryProofForToken, RECOVERY_VERSION } from "../src/x402/recovery.js";
+import { createPaymentReplayStore } from "../src/x402/settlement-attempt-guard.js";
 import type {
   FacilitatorAdapter,
   PaymentPayload,
@@ -99,7 +101,10 @@ test("fails closed before settlement when durable reservation is unavailable", a
     async reserve() { throw new Error("offline"); },
     async release() {},
     async getDelivery() { return null; },
-    async commitDelivery() {}
+    async commitDelivery() {},
+    async getRecovery() { return null; },
+    async reserveRecoveryIntent() { throw new Error("offline"); },
+    async getRecoveryIntent() { throw new Error("offline"); }
   };
   const body = { url: "https://example.com/", language: "es" };
   await withServer(adapter, async (origin) => {
@@ -152,8 +157,8 @@ test("uses reconciled ledger evidence before returning the paid result", async (
   }, config, verifier);
 });
 
-async function validPayment(body: object, overrides: Partial<PaymentPayload> = {}): Promise<PaymentPayload> {
-  const required = await createPaymentRequired(config, body);
+async function validPayment(body: object, overrides: Partial<PaymentPayload> = {}, recovery?: { requestId: string; proof: string }): Promise<PaymentPayload> {
+  const required = await createPaymentRequired(config, body, "PAYMENT-SIGNATURE header is required", recovery);
   const accepted = required.accepts[0] as PaymentRequirements;
   return {
     x402Version: 2,
@@ -408,6 +413,88 @@ test("returns the committed delivery for an idempotent replay without settling t
     assert.equal(replayBody.receipt.transactionHash, firstBody.receipt.transactionHash);
     assert.equal(replayBody.resultHash, firstBody.resultHash);
     assert.equal(adapter.settleCalls, 1);
+  });
+});
+
+test("recovers a durable delivery with a buyer-owned capability without settling twice", async () => {
+  const adapter = new FakeFacilitator();
+  const baseStore = createPaymentReplayStore();
+  let recoveryMode: "normal" | "invalid-date" | "expired" | "tampered-result" = "normal";
+  const store: PaymentReplayStore = { ...baseStore, async getRecovery(id) { const record = await baseStore.getRecovery(id); if (!record) return null; const copy = structuredClone(record); if (recoveryMode === "invalid-date") copy.recovery!.expiresAt = "invalid"; if (recoveryMode === "expired") copy.recovery!.expiresAt = "2000-01-01T00:00:00.000Z"; if (recoveryMode === "tampered-result") copy.result = { changed: true }; return copy; } };
+  const body = { url: "https://example.com/", language: "es" };
+  const token = "A".repeat(43);
+  const requestId = "b".repeat(32);
+  const proof = recoveryProofForToken(token);
+  const signature = encodeX402Header(await validPayment(body, {}, { requestId, proof }));
+  await withServer(adapter, async (origin) => {
+    const challenge = await fetch(`${origin}${config.endpointPath}`, { method: "POST", headers: { "content-type": "application/json", "x-bazaar-request-id": requestId, "x-bazaar-recovery-proof": proof }, body: JSON.stringify(body) });
+    assert.equal(challenge.status, 402);
+    const paid = await fetch(`${origin}${config.endpointPath}`, { method: "POST", headers: { "content-type": "application/json", "payment-signature": signature, "x-bazaar-request-id": requestId, "x-bazaar-recovery-proof": proof }, body: JSON.stringify(body) });
+    assert.equal(paid.status, 200);
+    const delivered = await paid.json();
+    assert.equal(delivered.recovery.available, true);
+    const recover = (recoveryToken: string, requestedId = requestId) => fetch(`${origin}/v1/x402/audits/recover`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ version: RECOVERY_VERSION, recoveryId: delivered.recovery.recoveryId, requestId: requestedId, recoveryToken }) });
+    const wrong = await recover("B".repeat(43));
+    assert.equal(wrong.status, 403);
+    assert.equal((await wrong.json()).error.code, "RECOVERY_UNAUTHORIZED");
+    assert.equal((await recover(token, "c".repeat(32))).status, 403);
+    const recovered = await recover(token);
+    assert.equal(recovered.status, 200);
+    const recoveredBody = await recovered.json();
+    assert.deepEqual(recoveredBody.result, delivered.result);
+    assert.equal(recoveredBody.resultHash, delivered.resultHash);
+    assert.equal(recoveredBody.receipt.transactionHash, delivered.receipt.transactionHash);
+    assert.equal((await recover(token)).status, 200, "terminal recovery remains idempotent");
+    recoveryMode = "invalid-date"; assert.equal((await recover(token)).status, 422);
+    recoveryMode = "expired"; assert.equal((await recover(token)).status, 410);
+    recoveryMode = "tampered-result"; assert.equal((await recover(token)).status, 422);
+    assert.equal(adapter.settleCalls, 1);
+  }, config, undefined, store);
+});
+
+test("recovery fails closed for missing or unavailable durable records", async () => {
+  const body = { version: RECOVERY_VERSION, recoveryId: "a".repeat(64), requestId: "b".repeat(32), recoveryToken: "C".repeat(43) };
+  const adapter = new FakeFacilitator();
+  await withServer(adapter, async (origin) => {
+    const missing = await fetch(`${origin}/v1/x402/audits/recover`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal(missing.status, 404);
+  });
+  const base = createPaymentReplayStore();
+  const unavailable: PaymentReplayStore = { ...base, async getRecovery() { throw new Error("offline"); } };
+  await withServer(adapter, async (origin) => {
+    const response = await fetch(`${origin}/v1/x402/audits/recover`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    assert.equal(response.status, 503);
+  }, config, undefined, unavailable);
+  assert.equal(adapter.settleCalls, 0);
+});
+
+test("rejects malformed recovery binding before facilitator verification or settlement", async () => {
+  const adapter = new FakeFacilitator();
+  const body = { url: "https://example.com/", language: "es" };
+  await withServer(adapter, async (origin) => {
+    const response = await fetch(`${origin}${config.endpointPath}`, { method: "POST", headers: { "content-type": "application/json", "payment-signature": encodeX402Header(await validPayment(body)), "x-bazaar-request-id": "bad", "x-bazaar-recovery-proof": "also-bad" }, body: JSON.stringify(body) });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, "RECOVERY_BINDING_INVALID");
+    assert.equal(adapter.verifyCalls, 0);
+    assert.equal(adapter.settleCalls, 0);
+  });
+});
+
+test("binds recovery proof into the x402 challenge and rejects a changed proof", async () => {
+  const adapter = new FakeFacilitator();
+  const body = { url: "https://example.com/", language: "es" };
+  const requestId = "a".repeat(32);
+  const proof = "b".repeat(64);
+  const signature = encodeX402Header(await validPayment(body, {}, { requestId, proof }));
+  await withServer(adapter, async (origin) => {
+    const challenge = await fetch(`${origin}${config.endpointPath}`, { method: "POST", headers: { "content-type": "application/json", "x-bazaar-request-id": requestId, "x-bazaar-recovery-proof": proof }, body: JSON.stringify(body) });
+    assert.equal(challenge.status, 402);
+    const tamperedPayment = decodeX402Header<PaymentPayload>(signature);
+    tamperedPayment.extensions!["website-intelligence/request-binding"].info.recoveryProof = "c".repeat(64);
+    const response = await fetch(`${origin}${config.endpointPath}`, { method: "POST", headers: { "content-type": "application/json", "payment-signature": encodeX402Header(tamperedPayment), "x-bazaar-request-id": requestId, "x-bazaar-recovery-proof": "c".repeat(64) }, body: JSON.stringify(body) });
+    assert.equal(response.status, 409);
+    assert.equal(adapter.verifyCalls, 0);
+    assert.equal(adapter.settleCalls, 0);
   });
 });
 

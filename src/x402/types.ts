@@ -77,13 +77,19 @@ export interface PaymentReplayStore {
   release(fingerprint: string): Promise<void>;
   getDelivery(fingerprint: string): Promise<PaymentDeliveryRecord | null>;
   commitDelivery(fingerprint: string, delivery: PaymentDeliveryRecord): Promise<void>;
+  getRecovery(recoveryId: string): Promise<PaymentDeliveryRecord | null>;
+  reserveRecoveryIntent(intent: RecoveryIntent): Promise<"created" | "matched" | "conflict">;
+  getRecoveryIntent(requestId: string): Promise<RecoveryIntent | null>;
 }
+
+export interface RecoveryIntent { requestId: string; proof: string; inputHash: string; cardHash: string }
 
 export interface PaymentDeliveryRecord {
   result: unknown;
   resultHash: string;
   receipt: ProviderReceipt;
   paymentResponse: string;
+  recovery?: { recoveryId: string; requestId: string; proof: string; expiresAt: string };
 }
 
 export interface SettlementEvidenceVerifier {

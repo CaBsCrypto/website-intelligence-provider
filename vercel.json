@@ -10,6 +10,7 @@
     { "src": "^/v1/service-card$", "dest": "/api/v1/service-card.ts" },
     { "src": "^/v1/fixtures$", "dest": "/api/v1/fixtures.ts" },
     { "src": "^/v1/audits$", "dest": "/api/v1/audits.ts" },
-    { "src": "^/v1/x402/audits$", "dest": "/api/v1/x402/audits.ts" }
+    { "src": "^/v1/x402/audits$", "dest": "/api/v1/x402/audits.ts" },
+    { "src": "^/v1/x402/audits/recover$", "dest": "/api/v1/x402/audits/recover.ts" }
   ]
 }

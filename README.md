@@ -53,6 +53,7 @@ curl -s http://127.0.0.1:8787/v1/audits \
 | `GET` | `/v1/fixtures` | Available local fixture identifiers |
 | `POST` | `/v1/audits` | Run a deterministic fixture audit |
 | `POST` | `/v1/x402/audits` | Run the same audit behind an exact-price x402 Testnet challenge |
+| `POST` | `/v1/x402/audits/recover` | Recover an already-paid delivery with a buyer-owned capability; never settles again |
 
 Request / Solicitud:
 
@@ -91,6 +92,16 @@ Successful responses include:
 - the deterministic audit in `data`;
 - a provider receipt containing request hash, output hash, exact payment terms, payer and transaction;
 - a reconciliation contract that detects receipt or request/output tampering.
+
+### Durable buyer-owned recovery
+
+A buyer may opt into recovery before authorizing payment by generating a random 256-bit token locally. The paid request sends only `SHA-256(token)` in `X-BAZAAR-RECOVERY-PROOF` plus a 32-hex request identifier in `X-BAZAAR-REQUEST-ID`. The provider atomically stores the proof together with the immutable result and receipt, and returns a public `recoveryId`.
+
+The token remains buyer-owned and must be treated like a password. It is never placed in a URL, Service Card, receipt, logs, Git, MCP output or provider response. Recovery uses a `POST` body containing `version`, `recoveryId`, `requestId` and the token. A successful recovery returns the original result and receipt without calling `/verify`, `/settle` or the buyer signer again. Invalid, missing, expired or mismatched capabilities fail closed. The current retention window is 24 hours.
+
+El comprador puede generar localmente un token aleatorio de 256 bits antes de autorizar. El proveedor recibe únicamente su hash, guarda de forma atómica la entrega inmutable y permite recuperarla mediante `POST`. El token se trata como contraseña y nunca aparece en URLs, recibos, logs o respuestas. Recuperar una entrega no vuelve a cobrar ni invoca al facilitador.
+
+Recovery covers a lost HTTP response **after the durable delivery commit**. It cannot make the external Stellar settlement and Redis commit atomic. If the process or store fails after settlement but before commit, the endpoint fails closed with `DELIVERY_PERSISTENCE_UNAVAILABLE`; operators must reconcile the ledger evidence and restore the immutable record, and the buyer must not authorize another payment. Automated pre-commit crash recovery remains a separate operational milestone.
 
 ### Buyer-harness environment
 
