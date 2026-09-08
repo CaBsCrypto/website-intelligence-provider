@@ -9,3 +9,9 @@ test("advertises and calls the MCP-shaped tool", () => {
   assert.equal(call.result.structuredContent.language, "es");
   assert.equal(call.result.structuredContent.mode, "fixture");
 });
+
+test("MCP does not silently replace live requests with fixtures", () => {
+  const call = handleRpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "audit_website", arguments: { mode: "live", url: "https://example.com" } } });
+  assert.equal(call.result.isError, true);
+  assert.equal(call.result.structuredContent, undefined);
+});

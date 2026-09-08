@@ -1,3 +1,4 @@
+import { tryLiveRecovery } from "./live-purchase.js";
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { readJsonBody, sendJson } from "../http.js";
@@ -26,10 +27,11 @@ function hashesMatch(left: string, right: string): boolean {
   return timingSafeEqual(Buffer.from(left, "hex"), Buffer.from(right, "hex"));
 }
 
-export async function handleDeliveryRecovery(request: IncomingMessage, response: ServerResponse, dependencies: Pick<X402Dependencies, "paymentReplayStore" | "config">): Promise<void> {
+export async function handleDeliveryRecovery(request: IncomingMessage, response: ServerResponse, dependencies: X402Dependencies): Promise<void> {
   let body: any;
   try { body = await readJsonBody(request); } catch { return sendJson(response, 400, { error: { code: "INVALID_JSON", message: "Recovery request must be valid JSON." } }); }
   if (body?.version !== RECOVERY_VERSION || !HEX_64.test(body?.recoveryId) || !HEX_32.test(body?.requestId) || !TOKEN.test(body?.recoveryToken)) return sendJson(response, 400, { error: { code: "RECOVERY_REQUEST_INVALID", message: "Recovery request is malformed." } });
+  if (await tryLiveRecovery(response, dependencies, body)) return;
   let delivery;
   try { delivery = await dependencies.paymentReplayStore.getRecovery(body.recoveryId); }
   catch { return sendJson(response, 503, { error: { code: "DURABLE_STORE_UNAVAILABLE", message: "Recovery storage is unavailable." } }); }

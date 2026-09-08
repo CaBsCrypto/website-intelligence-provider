@@ -23,6 +23,7 @@ export async function handleAuditRequest(request: IncomingMessage, response: Ser
     const body = await readJsonBody(request);
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new LiveAuditError("INVALID_INPUT", "Indica una URL válida.");
     const input = body as any;
+    if (input.mode === "live" && (process.env.VERCEL === "1" || process.env.AWS_LAMBDA_FUNCTION_NAME)) { sendJson(response, 403, { error: { code: "LIVE_USE_PAID_ENDPOINT", message: "Use the paid live endpoint on hosted deployments." } }); return; }
     if (input.mode !== undefined && !["fixture", "live"].includes(input.mode)) throw new LiveAuditError("INVALID_INPUT", "Modo inválido.");
     sendJson(response, 200, input.mode === "live" ? await auditLiveWebsite(input) : auditWebsite(input));
   } catch (error) {

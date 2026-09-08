@@ -1,3 +1,4 @@
+import { handleLivePurchase } from "./live-purchase.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { ExactStellarScheme } from "@x402/stellar/exact/server";
 import { validateStellarDestinationAddress } from "@x402/stellar";
@@ -144,6 +145,7 @@ export async function handlePaidAuditRequest(
     return;
   }
 
+  if ((body as any)?.mode === "live") return handleLivePurchase(request, response, dependencies, body);
   if ((body as any)?.mode !== undefined && (body as any).mode !== "fixture") {
     sendJson(response, 400, { error: { code: "LIVE_PAYMENT_NOT_ENABLED", message: "Live audits are available only through the unpaid local pilot." } });
     return;

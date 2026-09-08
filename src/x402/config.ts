@@ -1,3 +1,4 @@
+import { RedisLiveStore } from "./live-store.js";
 import { DisabledFacilitatorAdapter, HttpFacilitatorAdapter } from "./adapter.js";
 import type { X402Dependencies, X402ProviderConfig } from "./types.js";
 import { processPaymentReplayStore, processSettlementAttemptGuard } from "./settlement-attempt-guard.js";
@@ -64,6 +65,7 @@ export function loadX402Config(env: NodeJS.ProcessEnv = process.env): X402Provid
     ...X402_TESTNET_DEFAULTS,
     enabled: settlementEnabled,
     settlementEnabled,
+    liveEnabled: settlementEnabled && durableStoreConfigured && env.WEBSITE_INTELLIGENCE_LIVE_ENABLED === "true",
     executionMode: settlementEnabled ? (multiInstanceRuntime ? "durable-multi-instance" : "manual-single-process") : "disabled",
     configurationErrors,
     publicBaseUrl: requestedPublicOrigin ?? "https://invalid.local",
@@ -81,6 +83,7 @@ export function createRuntimeX402Dependencies(env: NodeJS.ProcessEnv = process.e
   return {
     config,
     facilitator,
+    ...(env.WEBSITE_INTELLIGENCE_REDIS_REST_URL && env.WEBSITE_INTELLIGENCE_REDIS_REST_TOKEN ? { liveStore: new RedisLiveStore(env.WEBSITE_INTELLIGENCE_REDIS_REST_URL, env.WEBSITE_INTELLIGENCE_REDIS_REST_TOKEN) } : {}),
     settlementEvidenceVerifier: new StellarSettlementEvidenceVerifier(),
     settlementAttemptGuard: processSettlementAttemptGuard,
     paymentReplayStore: config.executionMode === "durable-multi-instance"

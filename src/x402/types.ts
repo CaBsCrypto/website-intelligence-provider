@@ -57,6 +57,7 @@ export interface FacilitatorAdapter {
 export interface X402ProviderConfig {
   enabled: boolean;
   settlementEnabled: boolean;
+  liveEnabled?: boolean;
   executionMode: "disabled" | "manual-single-process" | "durable-multi-instance";
   configurationErrors: string[];
   publicBaseUrl: string;
@@ -97,6 +98,8 @@ export interface SettlementEvidenceVerifier {
 }
 
 export interface X402Dependencies {
+  liveStore?: import("./live-store.js").LiveStore;
+  liveAudit?: typeof import("../live-audit.js").auditLiveWebsite;
   config: X402ProviderConfig;
   facilitator: FacilitatorAdapter;
   settlementAttemptGuard: SettlementAttemptGuard;

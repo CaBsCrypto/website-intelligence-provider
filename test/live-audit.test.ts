@@ -55,6 +55,18 @@ test('HTTP reports live input failures and refuses live purchases before payment
   const blocked = await post('/v1/audits', { mode: 'live', url: 'http://127.0.0.1' });
   assert.equal(blocked.status, 422); assert.equal((await blocked.json()).error.code, 'BLOCKED_DESTINATION');
   const paid = await post('/v1/x402/audits', { mode: 'live', url: 'https://example.com' });
-  assert.equal(paid.status, 400); assert.equal((await paid.json()).error.code, 'LIVE_PAYMENT_NOT_ENABLED');
+  assert.equal(paid.status, 503); assert.equal((await paid.json()).error.code, 'LIVE_PAYMENT_NOT_ENABLED');
   assert.equal((await post('/v1/audits', { mode: 'unknown', url: 'https://example.com' })).status, 422);
+});
+
+test('hosted unpaid route cannot bypass the paid live endpoint', async t => {
+  const before = process.env.VERCEL;
+  process.env.VERCEL = '1';
+  t.after(() => { if (before === undefined) delete process.env.VERCEL; else process.env.VERCEL = before; });
+  const server = createAppServer().listen(0, '127.0.0.1');
+  await once(server, 'listening'); t.after(() => server.close());
+  const address = server.address(); assert(address && typeof address === 'object');
+  const response = await fetch(`http://127.0.0.1:${address.port}/v1/audits`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode: 'live', url: 'https://example.com' }) });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error.code, 'LIVE_USE_PAID_ENDPOINT');
 });

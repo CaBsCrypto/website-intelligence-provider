@@ -13,6 +13,12 @@ export class StellarSettlementEvidenceVerifier implements SettlementEvidenceVeri
     const envelope = TransactionBuilder.fromXDR(result.envelopeXdr, Networks.TESTNET);
     const transaction = "innerTransaction" in envelope ? envelope.innerTransaction : envelope;
     if (!transaction || transaction.operations.length !== 1) throw new Error("SETTLEMENT_OPERATION_MISMATCH");
+    // Live recovery may be given a transaction hash by a buyer. Bind it to the exact signed transaction, not merely an equal transfer.
+    if (request.paymentPayload.payload.transaction) {
+      const signedEnvelope = TransactionBuilder.fromXDR(request.paymentPayload.payload.transaction, Networks.TESTNET);
+      const signed = "innerTransaction" in signedEnvelope ? signedEnvelope.innerTransaction : signedEnvelope;
+      if (!transaction.hash().equals(signed.hash())) throw new Error("SETTLEMENT_SIGNED_TRANSACTION_MISMATCH");
+    }
     const operation = transaction.operations[0];
     if (operation.type !== "invokeHostFunction" || operation.func.switch().name !== "hostFunctionTypeInvokeContract") {
       throw new Error("SETTLEMENT_OPERATION_MISMATCH");
