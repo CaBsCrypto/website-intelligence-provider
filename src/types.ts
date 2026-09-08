@@ -3,6 +3,7 @@ export type Language = "en" | "es";
 export interface AuditRequest {
   url: string;
   language?: Language;
+  mode?: "fixture" | "live";
 }
 
 export interface Finding {

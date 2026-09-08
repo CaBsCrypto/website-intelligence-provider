@@ -144,6 +144,10 @@ export async function handlePaidAuditRequest(
     return;
   }
 
+  if ((body as any)?.mode !== undefined && (body as any).mode !== "fixture") {
+    sendJson(response, 400, { error: { code: "LIVE_PAYMENT_NOT_ENABLED", message: "Live audits are available only through the unpaid local pilot." } });
+    return;
+  }
   let output: ReturnType<typeof auditWebsite>;
   try {
     output = auditWebsite(body as any);
