@@ -13,11 +13,21 @@ export class StellarSettlementEvidenceVerifier implements SettlementEvidenceVeri
     const envelope = TransactionBuilder.fromXDR(result.envelopeXdr, Networks.TESTNET);
     const transaction = "innerTransaction" in envelope ? envelope.innerTransaction : envelope;
     if (!transaction || transaction.operations.length !== 1) throw new Error("SETTLEMENT_OPERATION_MISMATCH");
-    // Live recovery may be given a transaction hash by a buyer. Bind it to the exact signed transaction, not merely an equal transfer.
+    // Bind to the signed transaction or its exact Soroban authorization when the facilitator replaces the submitting account.
     if (request.paymentPayload.payload.transaction) {
       const signedEnvelope = TransactionBuilder.fromXDR(request.paymentPayload.payload.transaction, Networks.TESTNET);
       const signed = "innerTransaction" in signedEnvelope ? signedEnvelope.innerTransaction : signedEnvelope;
-      if (!transaction.hash().equals(signed.hash())) throw new Error("SETTLEMENT_SIGNED_TRANSACTION_MISMATCH");
+      if (!transaction.hash().equals(signed.hash())) {
+        const actualOp = transaction.operations[0], signedOp = signed.operations[0];
+        const sameAuthorization = actualOp?.type === "invokeHostFunction" && signedOp?.type === "invokeHostFunction"
+          && actualOp.func.toXDR("base64") === signedOp.func.toXDR("base64")
+          && (signedOp.auth?.length ?? 0) > 0 && actualOp.auth?.length === signedOp.auth?.length
+          && signedOp.auth!.every((entry, index) => entry.credentials().switch().name === "sorobanCredentialsAddress"
+            && entry.credentials().address().signature().switch().name === "scvVec"
+            && entry.credentials().address().signature().vec()!.length > 0
+            && entry.toXDR("base64") === actualOp.auth![index].toXDR("base64"));
+        if (!sameAuthorization) throw new Error("SETTLEMENT_SIGNED_TRANSACTION_MISMATCH");
+      }
     }
     const operation = transaction.operations[0];
     if (operation.type !== "invokeHostFunction" || operation.func.switch().name !== "hostFunctionTypeInvokeContract") {
