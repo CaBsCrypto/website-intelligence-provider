@@ -43,8 +43,11 @@ function allowedOrigins(value: string | undefined): Set<string> {
 
 export function loadX402Config(env: NodeJS.ProcessEnv = process.env): X402ProviderConfig {
   const payTo = env.X402_STELLAR_PAY_TO ?? "";
-  const requestedPublicOrigin = canonicalHttpsOrigin(env.X402_PUBLIC_BASE_URL);
-  const publicOriginAllowlist = allowedOrigins(env.X402_ALLOWED_PUBLIC_BASE_URLS);
+  const previewRequested = env.X402_USE_PREVIEW_ORIGIN === "true";
+  const previewOrigin = env.VERCEL === "1" && env.VERCEL_ENV === "preview" && env.VERCEL_URL && /^[a-z0-9-]+\.vercel\.app$/.test(env.VERCEL_URL)
+    ? canonicalHttpsOrigin(`https://${env.VERCEL_URL}`) : null;
+  const requestedPublicOrigin = previewRequested ? previewOrigin : canonicalHttpsOrigin(env.X402_PUBLIC_BASE_URL);
+  const publicOriginAllowlist = previewRequested ? new Set(previewOrigin ? [previewOrigin] : []) : allowedOrigins(env.X402_ALLOWED_PUBLIC_BASE_URLS);
   const facilitatorApiKey = env.STELLAR_X402_FACILITATOR_API_KEY ?? "";
   const settlementRequested = env.X402_SETTLEMENT_ENABLED === "true";
   const manualSingleProcess = env.X402_MANUAL_SINGLE_PROCESS_TESTNET === "true";
