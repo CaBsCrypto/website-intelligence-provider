@@ -29,6 +29,8 @@
   },
   "dependencies": {
     "@x402/core": "2.24.0",
-    "@x402/stellar": "2.24.0"
+    "@x402/stellar": "2.24.0",
+    "ipaddr.js": "2.5.0",
+    "parse5": "8.0.1"
   }
 }

@@ -32,6 +32,16 @@ const serviceCardBase = {
 export function getServiceCardForConfig(config: X402ProviderConfig) {
   const card = {
     ...serviceCardBase,
+    ...(config.liveEnabled ? {
+      version: "1.2.0",
+      description: { en: "Single-page public HTML analysis with durable Testnet delivery recovery.", es: "Análisis del HTML público de una página con recuperación de entrega Testnet." },
+      input: { contentType: "application/json", schema: { url: "public HTTP(S) URL", language: "en | es (live default: es)", mode: "fixture | live (default: fixture)" } },
+      output: { contentType: "application/json", schemaVersion: "1.1", fixtureSchemaVersion: "1.0" },
+      networkPolicy: { default: "deny", fixtureOnly: false, auditOutboundRequests: "live only: public HTTP(S), pinned DNS, 3 redirects, 10 seconds, 2 MB; no JavaScript", facilitatorOutboundRequests: "only-when-X402_SETTLEMENT_ENABLED=true" },
+      determinism: { guaranteedForSameVersionAndInput: false, clockDataIncluded: true },
+      recovery: { path: "/v1/x402/audits/recover", accessSeconds: 86400, liveRequestIdRequired: true },
+      interfaces: { http: { method: "POST", path: "/v1/x402/audits" }, mcp: { tool: "audit_website", mode: "fixture-only; paid live requires buyer HTTP integration" } },
+    } : {}),
     payment: {
       enabled: config.enabled,
       network: config.network,

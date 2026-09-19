@@ -3,7 +3,7 @@ import { auditWebsite, AuditInputError } from "./audit.js";
 
 const tool = {
   name: "audit_website",
-  description: "Audit a URL using deterministic local fixtures. No network request is performed.",
+  description: "Audit a URL using deterministic local fixtures. No network request is performed by this tool. Paid live HTML analysis uses the buyer HTTP integration.",
   inputSchema: {
     type: "object", additionalProperties: false, required: ["url"],
     properties: { url: { type: "string", format: "uri" }, language: { type: "string", enum: ["en", "es"] } }
@@ -17,6 +17,7 @@ export function handleRpc(message: any): any {
   if (message.method === "tools/list") return { ...base, result: { tools: [tool] } };
   if (message.method === "tools/call" && message.params?.name === tool.name) {
     try {
+      if (message.params.arguments?.mode === "live") throw new AuditInputError("Live analysis requires the buyer HTTP integration", "INVALID_URL");
       const result = auditWebsite(message.params.arguments ?? {});
       return { ...base, result: { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result } };
     } catch (error) {
